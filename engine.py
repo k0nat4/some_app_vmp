@@ -1,6 +1,9 @@
 from code_mapping import CodeMapping
 from loguru import logger
 import math
+"""
+    probably need unicorn to load so and find specific offset.
+""" 
 
 def dispatch(VM_REGS):
     ...
@@ -9,7 +12,8 @@ def deref(variable):
     ...
 
 def ref(addr):
-    # return value from memory
+    
+    # designed for return a certain value from ram addr
     ...
 
 def get_variable(variable_name):
@@ -43,7 +47,7 @@ def ROR(num, offset):
 def complement(num):
     bit_length = len(bin(num))-2
     #print(bit_length)
-    extend_exp = math.ceil(math.log(bit_length, 2))
+    extend_exp= math.ceil(math.log(bit_length, 2))
     extend_size = 2 ** extend_exp
     origin = (1<<extend_size) - num 
     if origin < num:
@@ -90,7 +94,7 @@ def Vm(code_bytearray, a2, a3, a4, a5, q0=None, VM_REGS=None):
         "m20": 0,
         "m21": 0,
         "m22": 0,
-        "m23": 0,
+        "m23": 0, #VR0
         "m24": 0,
         "m25": 0,
         "m26": 0,
@@ -105,7 +109,7 @@ def Vm(code_bytearray, a2, a3, a4, a5, q0=None, VM_REGS=None):
         "m35": 0,
         "m36": 0, # v138 # fpr handle result 
         "m37": 0,
-        "m38": 0,              
+        "m38": 0, #VR15
         "m39": code_bytearray, # VREGS_BASE m0-78  #pc #stack SP
     } # m7 - m38 can be modified
 
@@ -127,7 +131,7 @@ def Vm(code_bytearray, a2, a3, a4, a5, q0=None, VM_REGS=None):
     
     while code_bytearray_idx_addr != cursor_end:
 
-        #setting vm exec state    
+        # setting vm exec state    
         vm_exec_state = VM_REGS["m4"]
         if vm_exec_state == 2:
             VM_REGS["m4"] = 3
@@ -526,53 +530,268 @@ def Vm(code_bytearray, a2, a3, a4, a5, q0=None, VM_REGS=None):
             dispatch()
 
         elif cm.code_0_5 == 42:
+            # REG BETWEEN ARITHMATIC OPERATIONS
             print(cm.code_6_11)
             logger.info("Branch 42:")
-            if cm.code_6_11 == 9:
-                ...
 
-            elif cm.code_6_11 == 34:
-                logger.info("\tsub6_11:34")
-                if vm_exec_state > 0: dispatch()
-                VM_REGS['m3'] = VM_REGS[f"m{op2_base_ptr-1}"]
-                VM_REGS['m4'] = 2
-                if cm.code_12_15 > 0:
-                    VM_REGS[f"m{39-cm.code_12_15}"] = vm_code_ptr + 8
-                    VM_REGS["m2"] = vm_code_ptr + 8
-            
-            elif cm.code_6_11 == 35:
-                logger.info("\tsub6_11:35")
-                reg_1 = VM_REGS[f"m{op1_base_ptr-1}"] 
-                reg_2 = VM_REGS[f"m{op2_base_ptr-1}"] 
-                tmp = reg_1 * reg_2 
-                VM_REGS['m5'] = tmp
-                VM_REGS['m6'] = tmp >> 0x20
-
-
-            elif cm.code_6_11 == 36:
-                if (vm_code >> 21) & 1 == 1:
-                    # l371
-                    VM_REGS[f'{38-cm.code_12_15}'] = ROR(VM_REGS[f"m{op1_base_ptr-1}"], cm.code_26_30)
-                elif (vm_code >> 21) & 1 == 0:
-                    VM_REGS[f'{38-cm.code_12_15}'] = VM_REGS[f"m{op1_base_ptr-1}"] >> cm.code_26_30
-        
-            elif cm.code_6_11 == 40:
-                if (vm_code >> 21) & 1 == 1:
-                    VM_REGS[f'{38-cm.code_12_15}'] = ROR(VM_REGS[f'm{op1_base_ptr}'], (cm.code_26_30|0x20))
-                else:
-                    # not sure
-                    dispatch()
-            
-            elif cm.code_6_11 == 41:
-                dispatch()
-            
-            elif cm.code_6_11 == 42:
-                #TODO unchecked
-                ...
-            
-            elif cm.code_6_11 == 53:
-                #TODO unchecked
-                ...
+            match cm.code_6_11:
+                case 0:
+                    # LSL VRm, VRn
+                    # MOV VRd, VRm
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op1_base_ptr-1}"] << VM_REGS[f"m{op2_base_ptr-1}"]
+                case 1:
+                    # SUBS VRd, VRm, VRn
+                    VM_REGS[f"m{38-cm.code_12_15}"] = SEXT(VM_REGS[f"m{op2_base_ptr-1}"] - VM_REGS[f"m{op1_base_ptr-1}"])  # concealed LODWORD() and sign extension
+                case 2:
+                    # LSR VRm, #imm 
+                    # MOV VRd, VRm
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op1_base_ptr-1}"] >> cm.code_26_30
+                case 3:
+                    # AND VRd, VRm, VRn
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op1_base_ptr-1}"] & VM_REGS[f"m{op2_base_ptr-1}"]
+                case 4:
+                    # NOP
+                    ...
+                case 5:
+                    # LSL VRm, #imm(unsigned)
+                    # MOV VRd. VRm
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op1_base_ptr-1}"] << (cm.code_26_30 | 0x20)
+                case 6:
+                    # mul VXd, VWm, VWn
+                    # mov VR6, VXd
+                    # lsr VXd, 0x20
+                    # mov VR5, VXd
+                    res = VM_REGS[f"m{op1_base_ptr-1}"] * VM_REGS[f"m{op2_base_ptr-1}"]
+                    VM_REGS['m5'] = res >> 0x20
+                    VM_REGS['m6'] = res & 0xffffffff
+                case 7:
+                    # SUB VRd, VRm, VRn (TODO: negative value representation)
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op2_base_ptr-1}"] - VM_REGS[f"m{op1_base_ptr-1}"]
+                case 8:
+                    # UDIV or SDIV?
+                    res = VM_REGS[f"m{op2_base_ptr-1}"] / VM_REGS[f"m{op1_base_ptr-1}"]
+                    rem = VM_REGS[f"m{op2_base_ptr-1}"] - VM_REGS[f"m{op1_base_ptr-1}"] * res
+                    VM_REGS[f"m5"] = rem
+                    VM_REGS[f"m6"] = res
+                case 9:
+                    # ADD VRd, VRm, VRn (TODO: overflow representation)
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op2_base_ptr-1}"] + VM_REGS[f"m{op1_base_ptr-1}"]
+                case 10:
+                    # NOR VRd, VRm, Vrn (TODO: register based operation)
+                    VM_REGS[f"m{38-cm.code_12_15}"] = negate(VM_REGS[f"m{op1_base_ptr-1}"] | VM_REGS[f"m{op2_base_ptr-1}"])
+                case 11:
+                    # LSL(bits croped)
+                    VM_REGS[f"m{38-cm.code_12_15}"] = (VM_REGS[f"m{op1_base_ptr-1}"] << VM_REGS[f"m{op2_base_ptr-1}"]) & 0xffffffff
+                case 12:
+                    # NOP
+                    ...
+                case 13:
+                    # SDIV?
+                    res = VM_REGS[f"m{op2_base_ptr-1}"] / VM_REGS[f"m{op1_base_ptr-1}"]
+                    rem = VM_REGS[f"m{op2_base_ptr-1}"] - VM_REGS[f"m{op1_base_ptr-1}"] * res
+                    VM_REGS['m5'] = rem & 0xffffffff
+                    VM_REGS['m6'] = res & 0xffffffff
+                case 14:
+                    # ROR
+                    if cm.code_26 == 1:
+                        VM_REGS[f"m{38-cm.code_12_15}"] = ((VM_REGS[f"m{op1_base_ptr-1}"] << (0x20 - VM_REGS[f"m{op2_base_ptr-1}"])) | (VM_REGS[f"m{op1_base_ptr-1}"] >> VM_REGS[f"m{op2_base_ptr-1}"])) & 0xffffffff
+                    else:
+                        VM_REGS[f"m{38-cm.code_12_15}"] = (VM_REGS[f"m{op1_base_ptr-1}"] >> VM_REGS[f"m{op2_base_ptr-1}"]) & 0xffffffff
+                case 15:
+                    # ADDS VRd, VRm, VRn
+                    VM_REGS[f"m{38-cm.code_12_15}"] = (VM_REGS[f"m{op1_base_ptr-1}"] + VM_REGS[f"m{op2_base_ptr-1}"]) & 0xffffffff
+                case 16:
+                    # LSL #imm
+                    # using qword to store, so probably store in 2 register
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op1_base_ptr-1}"] << cm.code_26_30
+                case 17:
+                    # NOP
+                    ...
+                case 18:
+                    # ?
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS["m6"]
+                case 19:
+                    # ?DIV ? 
+                    res = VM_REGS[f"m{op2_base_ptr-1}"] / (VM_REGS[f"m{op1_base_ptr-1}"] & 0xffffffff)
+                    rem = VM_REGS[f"m{op2_base_ptr-1}"] - VM_REGS[f"m{op1_base_ptr-1}"] * res
+                    VM_REGS[f"m5"] = rem & 0xffffffff
+                    VM_REGS[f"m6"] = res & 0xffffffff
+                case 20:
+                    # NOP
+                    ...
+                case 21:
+                    # ADDS
+                    VM_REGS[f"m{38-cm.code_12_15}"] = (VM_REGS[f"m{op1_base_ptr-1}"] + VM_REGS[f"m{op2_base_ptr-1}"]) & 0xffffffff
+                case 22:
+                    # LSR
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op1_base_ptr-1}"] >> (cm.code_26_30|0x20)
+                case 23:
+                    # NOP
+                    ...
+                case 24:
+                    # SPECIAL, looks like read next inst and setting m3 m4
+                    if vm_exec_state == 0:
+                        VM_REGS[f"m4"] = 2
+                        VM_REGS[f"m3"] = VM_REGS[f"m{op2_base_ptr-1}"]
+                        vm_code_ptr = VM_REGS["m39"] + sizeof(INST)
+                        VM_REGS["m39"] = vm_code_ptr
+                    else:
+                        #NOP
+                        ...
+                case 25:
+                    # NOP
+                    ...
+                case 26:
+                    # ?
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS["m6"]
+                case 27:
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op1_base_ptr-1}"] ^ VM_REGS[f"m{op2_base_ptr-1}"] 
+                case 28:
+                    # store in qword, is this signed unrelevant?
+                    res = VM_REGS[f"m{op2_base_ptr-1}"] / VM_REGS[f"m{op1_base_ptr-1}"]
+                    rem = VM_REGS[f"m{op2_base_ptr-1}"] - VM_REGS[f"m{op1_base_ptr-1}"] * res
+                    VM_REGS[f"m5"] = rem 
+                    VM_REGS[f"m6"] = res
+                case 29:
+                    # CMP VRn, VRm (Alike, not really is this instruction)
+                    VM_REGS[f"m{39-cm.code_12_15}"] = VM_REGS[f"m{op2_base_ptr-1}"] < VM_REGS[f"m{op1_base_ptr-1}"]
+                case 30:
+                    # controvertible
+                    VM_REGS[f"m{39-cm.code_12_15}"] = VM_REGS[f"m{op2_base_ptr-1}"] < VM_REGS[f"m{op1_base_ptr-1}"]
+                case 31:
+                    # NOP
+                    ...
+                case 32:
+                    # NOP
+                    ...
+                case 33:
+                    # NOP
+                    ...
+                case 34:
+                    logger.info("\tsub6_11:34")
+                    if vm_exec_state > 0: dispatch()
+                    VM_REGS['m3'] = VM_REGS[f"m{op2_base_ptr-1}"]
+                    VM_REGS['m4'] = 2
+                    if cm.code_12_15 > 0:
+                        VM_REGS[f"m{39-cm.code_12_15}"] = vm_code_ptr + 8
+                        VM_REGS["m2"] = vm_code_ptr + 8
+                case 35:
+                    logger.info("\tsub6_11:35")
+                    reg_1 = VM_REGS[f"m{op1_base_ptr-1}"] 
+                    reg_2 = VM_REGS[f"m{op2_base_ptr-1}"] 
+                    tmp = reg_1 * reg_2 
+                    VM_REGS['m5'] = tmp
+                    VM_REGS['m6'] = tmp >> 0x20
+                case 36:
+                    if (vm_code >> 21) & 1 == 1:
+                        # l371
+                        VM_REGS[f'{38-cm.code_12_15}'] = ROR(VM_REGS[f"m{op1_base_ptr-1}"], cm.code_26_30)
+                    elif (vm_code >> 21) & 1 == 0:
+                        VM_REGS[f'{38-cm.code_12_15}'] = VM_REGS[f"m{op1_base_ptr-1}"] >> cm.code_26_30
+                case 37:
+                    # NOP
+                    ...
+                case 38:
+                    # NOP
+                    ...
+                case 39:
+                    tmp = VM_REGS[f"m{op1_base_ptr-1}"] * VM_REGS[f"m{op2_base_ptr-1}"]
+                    VM_REGS["m5"] = tmp >> 0x40
+                    VM_REGS["m6"] = tmp
+                case 40:
+                    if (vm_code >> 21) & 1 == 1:
+                        VM_REGS[f'{38-cm.code_12_15}'] = ROR(VM_REGS[f'm{op1_base_ptr}'], (cm.code_26_30|0x20))
+                    else:
+                        # not sure
+                        ...
+                case 41:
+                    # NOP
+                    ...
+                case 42:
+                    # ROR8 imm # TODO: this implementation is wrong 
+                    code_21 = cm.code_21_25 & 1
+                    if code_21 == 1:
+                        VM_REGS[f"m{38-cm.code_12_15}"] = ((VM_REGS[f"m{op1_base_ptr-1}"] << (0x20 - VM_REGS[f"m{op2_base_ptr-1}"])) | (VM_REGS[f"m{op1_base_ptr-1}"] >> VM_REGS[f"m{op2_base_ptr-1}"])) & 0xffffffff
+                    else:
+                        VM_REGS[f"m{38-cm.code_12_15}"] = (VM_REGS[f"m{op1_base_ptr-1}"] >> VM_REGS[f"m{op2_base_ptr-1}"]) & 0xffffffff
+                case 43:
+                    # ROR8 imm # TODO
+                    ...
+                
+                case 44:
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op1_base_ptr-1}"] >> cm.code_26_30
+                
+                case 45:
+                    #NOP
+                    ...
+                
+                case 46:
+                    VM_REGS['m6'] = VM_REGS[f"m{op2_base_ptr-1}"]
+                
+                case 47:
+                    #NOP
+                    ...
+                
+                case 48:
+                    if VM_REGS[f"m{op1_base_ptr-1}"] == 0:
+                        VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op2_base_ptr-1}"]
+                    else:
+                        # NOP
+                        ...
+                case 49:
+                    if VM_REGS[f"m{op1_base_ptr-1}"] != 0:
+                        VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op2_base_ptr-1}"]
+                    else:
+                        # NOP
+                        ...
+                case 50:
+                    VM_REGS['m5'] = VM_REGS[f"m{op2_base_ptr-1}"]
+                case 51:
+                    # NOP
+                    ...
+                case 52:
+                    # MULS? 
+                    tmp = (VM_REGS[f"m{op2_base_ptr-1}"] * VM_REGS[f"m{op1_base_ptr-1}"])
+                    VM_REGS["m6"] = tmp
+                    VM_REGS["m5"] = tmp >> 0x40
+                case 53:
+                    # ORR VRd, VRm, VRn
+                    VM_REGS[f"m{38-cm.code_12_15}"] = VM_REGS[f"m{op1_base_ptr-1}"] | VM_REGS[f"m{op2_base_ptr-1}"]
+                case 54:
+                    # ADD EXT 
+                    VM_REGS[f"m{op2_base_ptr - cm.code_12_15}"] = VM_REGS[f"m{op1_base_ptr-1}"] + VM_REGS[f"m{op2_base_ptr-1}"]
+                case 55:
+                    # SUB EXT
+                    VM_REGS[f"m{op2_base_ptr - cm.code_12_15}"] = VM_REGS[f"m{op2_base_ptr-1}"] - VM_REGS[f"m{op1_base_ptr-1}"]
+                case 56:
+                    # SUBS EXT
+                    VM_REGS[f"m{op2_base_ptr - cm.code_12_15}"] = SXTW(VM_REGS[f"m{op2_base_ptr-1}"] - VM_REGS[f"m{op1_base_ptr-1}"])
+                case 57:
+                    # NOP
+                    ...
+                case 58:
+                    # NOP
+                    ...
+                case 59:
+                    # LSR reg EXT
+                    VM_REGS[f"m{op2_base_ptr - cm.code_12_15}"] = VM_REGS[f"m{op1_base_ptr-1}"] >> VM_REGS[f"m{op2_base_ptr-1}"] 
+                
+                case 60:
+                    # ROR reg EXT
+                    VM_REGS[f"m{op2_base_ptr - cm.code_12_15}"] = ...
+                
+                case 61:
+                    #NOP
+                    ...
+                
+                case 62:
+                    #NOP
+                    ...
+                
+                case 63:
+                    #NOP
+                    ...
+                
 
             dispatch()
                     
